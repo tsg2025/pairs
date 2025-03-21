@@ -1,102 +1,69 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
+from datetime import datetime
 
-# Streamlit app details
-st.set_page_config(page_title="Financial Analysis", layout="wide")
-with st.sidebar:
-    st.title("Financial Analysis")
-    ticker = st.text_input("Enter a stock ticker (e.g. AAPL)", "AAPL")
-    period = st.selectbox("Enter a time frame", ("1D", "5D", "1M", "6M", "YTD", "1Y", "5Y"), index=2)
-    button = st.button("Submit")
+# Function to calculate z-score
+def calculate_zscore(series, lookback):
+    mean = series.rolling(window=lookback).mean()
+    std = series.rolling(window=lookback).std()
+    zscore = (series - mean) / std
+    return zscore
 
-# Format market cap and enterprise value into something readable
-def format_value(value):
-    suffixes = ["", "K", "M", "B", "T"]
-    suffix_index = 0
-    while value >= 1000 and suffix_index < len(suffixes) - 1:
-        value /= 1000
-        suffix_index += 1
-    return f"${value:.1f}{suffixes[suffix_index]}"
+# Streamlit app
+st.title("Pair Trading Backtesting")
 
-def safe_format(value, fmt="{:.2f}", fallback="N/A"):
-    try:
-        return fmt.format(value) if value is not None else fallback
-    except (ValueError, TypeError):
-        return fallback
+# Input boxes
+st.sidebar.header("Input Parameters")
+symbol1 = st.sidebar.text_input("Enter Stock Symbol 1", "AAPL")
+symbol2 = st.sidebar.text_input("Enter Stock Symbol 2", "MSFT")
+lookback = st.sidebar.number_input("Lookback Period for Z-Score", min_value=1, value=30)
+from_date = st.sidebar.date_input("From Date", datetime(2020, 1, 1))  # User selects start date
+to_date = st.sidebar.date_input("To Date", datetime(2023, 1, 1))  # User selects end date
 
-# If Submit button is clicked
-if button:
-    if not ticker.strip():
-        st.error("Please provide a valid stock ticker.")
+# Go button
+if st.sidebar.button("Go"):
+    if not symbol1.strip() or not symbol2.strip():
+        st.error("Please provide valid stock tickers.")
+    elif from_date > to_date:
+        st.error("Start date must be before end date.")
     else:
         try:
-            with st.spinner('Please wait...'):
-                # Retrieve stock data
-                stock = yf.Ticker(ticker)
-                info = stock.info
-
-                st.subheader(f"{ticker} - {info.get('longName', 'N/A')}")
-
-                # Plot historical stock price data
-                period_map = {
-                    "1D": ("1d", "1h"),
-                    "5D": ("5d", "1d"),
-                    "1M": ("1mo", "1d"),
-                    "6M": ("6mo", "1wk"),
-                    "YTD": ("ytd", "1mo"),
-                    "1Y": ("1y", "1mo"),
-                    "5Y": ("5y", "3mo"),
-                }
-                selected_period, interval = period_map.get(period, ("1mo", "1d"))
-                history = stock.history(period=selected_period, interval=interval)
+            with st.spinner('Fetching data...'):
+                # Fetch data for symbol1
+                stock1 = yf.Ticker(symbol1)
+                info1 = stock1.info
+                data1 = stock1.history(start=from_date, end=to_date, interval="1d")
                 
-                chart_data = pd.DataFrame(history["Close"])
-                st.line_chart(chart_data)
-
-                col1, col2, col3 = st.columns(3)
-
-                # Display stock information as a dataframe
-                stock_info = [
-                    ("Stock Info", "Value"),
-                    ("Country", info.get('country', 'N/A')),
-                    ("Sector", info.get('sector', 'N/A')),
-                    ("Industry", info.get('industry', 'N/A')),
-                    ("Market Cap", format_value(info.get('marketCap'))),
-                    ("Enterprise Value", format_value( info.get('enterpriseValue'))),
-                    ("Employees", info.get('fullTimeEmployees', 'N/A'))
-                ]
+                # Fetch data for symbol2
+                stock2 = yf.Ticker(symbol2)
+                info2 = stock2.info
+                data2 = stock2.history(start=from_date, end=to_date, interval="1d")
                 
-                df = pd.DataFrame(stock_info[1:], columns=stock_info[0]).astype(str)
-                col1.dataframe(df, width=400, hide_index=True)
-                
-                # Display price information as a dataframe
-                price_info = [
-                    ("Price Info", "Value"),
-                    ("Current Price", safe_format(info.get('currentPrice'), fmt="${:.2f}")),
-                    ("Previous Close", safe_format(info.get('previousClose'), fmt="${:.2f}")),
-                    ("Day High", safe_format(info.get('dayHigh'), fmt="${:.2f}")),
-                    ("Day Low", safe_format(info.get('dayLow'), fmt="${:.2f}")),
-                    ("52 Week High", safe_format(info.get('fiftyTwoWeekHigh'), fmt="${:.2f}")),
-                    ("52 Week Low", safe_format(info.get('fiftyTwoWeekLow'), fmt="${:.2f}"))
-                ]
-                
-                df = pd.DataFrame(price_info[1:], columns=price_info[0]).astype(str)
-                col2.dataframe(df, width=400, hide_index=True)
-
-                # Display business metrics as a dataframe
-                biz_metrics = [
-                    ("Business Metrics", "Value"),
-                    ("EPS (FWD)", safe_format(info.get('forwardEps'))),
-                    ("P/E (FWD)", safe_format(info.get('forwardPE'))),
-                    ("PEG Ratio", safe_format(info.get('pegRatio'))),
-                    ("Div Rate (FWD)", safe_format(info.get('dividendRate'), fmt="${:.2f}")),
-                    ("Div Yield (FWD)", safe_format(info.get('dividendYield') * 100, fmt="{:.2f}%") if info.get('dividendYield') else 'N/A'),
-                    ("Recommendation", info.get('recommendationKey', 'N/A').capitalize())
-                ]
-                
-                df = pd.DataFrame(biz_metrics[1:], columns=biz_metrics[0]).astype(str)
-                col3.dataframe(df, width=400, hide_index=True)
-
+                # Check if data is empty
+                if data1.empty or data2.empty:
+                    st.error(f"Failed to fetch data for {symbol1} or {symbol2}. Please check the ticker symbols and try again.")
+                else:
+                    # Calculate ratio and z-score
+                    data1['Close'] = data1['Close']
+                    data2['Close'] = data2['Close']
+                    ratio = data1['Close'] / data2['Close']
+                    zscore = calculate_zscore(ratio, lookback)
+                    
+                    # Display results
+                    st.subheader("Backtest Results")
+                    st.write(f"#### {symbol1} - {info1.get('longName', 'N/A')}")
+                    st.write(f"#### {symbol2} - {info2.get('longName', 'N/A')}")
+                    
+                    st.write("### Z-Score Series")
+                    st.line_chart(zscore)
+                    
+                    st.write("### Stock Prices")
+                    st.write(f"#### {symbol1} Close Prices")
+                    st.line_chart(data1['Close'])
+                    st.write(f"#### {symbol2} Close Prices")
+                    st.line_chart(data2['Close'])
+                    
         except Exception as e:
-            st.exception(f"An error occurred: {e}")
+            st.error(f"An error occurred: {e}")
