@@ -4,41 +4,43 @@ import pandas as pd
 import tempfile
 import os
 
-# Streamlit Title
+# Streamlit App Title
 st.title("Stock Price Downloader")
 
 # Sidebar for user input
 st.sidebar.header("Settings")
-
-# Allow user to select stocks
 tickers = st.sidebar.multiselect("Select Stocks", ["MSFT", "AAPL"], default=["MSFT", "AAPL"])
-
-# Allow user to select start and end date
-start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2020-01-01"))
-end_date = st.sidebar.date_input("End Date", pd.to_datetime("2024-12-31"))
-
-# Convert dates to string format
-start_date_str = start_date.strftime("%Y-%m-%d")
-end_date_str = end_date.strftime("%Y-%m-%d")
+period = st.sidebar.selectbox("Select Time Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=2)
+interval = st.sidebar.selectbox("Select Interval", ["1h", "1d", "1wk", "1mo"], index=1)
 
 # Fetch Data Button
 if st.sidebar.button("Fetch Stock Data"):
     with st.spinner("Fetching data..."):
         try:
-            if len(tickers) == 0:
+            if not tickers:
                 st.error("Please select at least one stock.")
             else:
-                # Download stock data
-                data = yf.download(tickers, start=start_date_str, end=end_date_str, progress=False)
+                # Fetch data for selected stocks
+                stock_data = {}
+                for ticker in tickers:
+                    stock = yf.Ticker(ticker)
+                    history = stock.history(period=period, interval=interval)
 
-                if not data.empty:
+                    if not history.empty:
+                        stock_data[ticker] = history["Close"]
+                    else:
+                        st.warning(f"No data found for {ticker}")
+
+                # If data is available, create DataFrame
+                if stock_data:
+                    df = pd.DataFrame(stock_data)
                     st.success("Data fetched successfully!")
-                    st.write(data.head())  # Display first few rows
+                    st.write(df.head())
 
-                    # Save data to a temporary CSV file
+                    # Save data to a temporary file
                     temp_dir = tempfile.gettempdir()
                     file_path = os.path.join(temp_dir, "stock_prices.csv")
-                    data.to_csv(file_path)
+                    df.to_csv(file_path)
 
                     # Provide a download link
                     with open(file_path, "rb") as f:
@@ -49,7 +51,7 @@ if st.sidebar.button("Fetch Stock Data"):
                             mime="text/csv"
                         )
                 else:
-                    st.error("No data found. Adjust the date range and try again.")
+                    st.error("No valid data available. Please adjust the settings.")
 
         except Exception as e:
-            st.error(f"Error fetching data: {e}")
+            st.error(f"An error occurred: {e}")
