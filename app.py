@@ -1,9 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from datetime import datetime
-import pytz
 
 # Function to calculate z-score
 def calculate_zscore(series, lookback):
@@ -26,14 +24,10 @@ to_date = st.sidebar.text_input("To Date (YYYY-MM-DD)", "2023-01-01")
 # Go button
 if st.sidebar.button("Go"):
     try:
-        # Add timezone information to the start and end dates
-        tz = pytz.timezone("America/New_York")
-        start = tz.localize(datetime.strptime(from_date, "%Y-%m-%d"))
-        end = tz.localize(datetime.strptime(to_date, "%Y-%m-%d"))
-
         # Fetch data
-        data1 = yf.download(symbol1, start=start, end=end, progress=False)
-        data2 = yf.download(symbol2, start=start, end=end, progress=False)
+        st.write(f"Downloading data for {symbol1} and {symbol2}...")
+        data1 = yf.download(symbol1, start=from_date, end=to_date, progress=False)
+        data2 = yf.download(symbol2, start=from_date, end=to_date, progress=False)
         
         # Check if data is empty
         if data1.empty or data2.empty:
